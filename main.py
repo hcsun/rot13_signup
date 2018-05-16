@@ -92,7 +92,11 @@ class SignUpHandler(Handler):
 class WelcomeHandler(Handler):
     def get(self):
         username = self.request.get('username')
-        self.render('welcome.html', username=username)
+
+        if valid_user.match(username):
+            self.render('welcome.html', username=username)
+        else:
+            self.redirect('/signup')
 
 
 app = webapp2.WSGIApplication([
