@@ -1,6 +1,8 @@
 
 import os
 import re
+import hashlib
+import hmac
 
 import jinja2
 import webapp2
@@ -9,6 +11,18 @@ template_dir = os.path.join(os.path.dirname(__file__), 'templates')
 jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir), autoescape=True)
 
 from google.appengine.ext import db
+
+SECRET = 'markandlw'
+def hash_str(s):
+    return hmac.new(SECRET, s).hexdigest()
+
+def make_secure_value(s):
+    return "%s|%s" % (s, hash_str(s))
+
+def check_secure_value(h):
+    val = h.split('|')[0]
+    if h == make_secure_value(val):
+        return val
 
 def Rot13_parsing(text):
     rot13_str = ""
@@ -88,16 +102,21 @@ class SignUpHandler(Handler):
         if len(return_message) > 1:
             self.render('signup.html', **return_message)
         else:
-            self.redirect('/welcome?username=%s' % return_message['username_input'])
+            user_id = make_secure_value(return_message['username_input'])
+            self.response.headers.add_header('Set-Cookie', str("user_id=%s;Path=/" % user_id))
+            self.redirect('/welcome')
 
 class WelcomeHandler(Handler):
     def get(self):
-        username = self.request.get('username')
+        user_hash = self.request.cookies.get('user_id')
+        username = check_secure_value(user_hash)
 
-        if valid_user.match(username):
-            self.render('welcome.html', username=username)
-        else:
-            self.redirect('/signup')
+        if username:
+            if valid_user.match(username):
+                self.render('welcome.html', username=username)
+                return
+
+        self.redirect('/signup')
 
 
 def BlogKey(name = "default"):
@@ -150,6 +169,25 @@ class NewPost(Handler):
             error = 'Wrong Subject or Content'
             self.render("newpost.html", subject=subject, content=content, error=error)
 
+class MainPage(Handler):
+    def get(self):
+        self.response.headers['Content-Type'] = 'text/plain'
+        
+        visits = 0
+        
+        visits_str = self.request.cookies.get('visits')
+        if visits_str:
+            val = check_secure_value(visits_str)
+            if val:
+                visits = int(val)
+
+        visits += 1
+
+        visits_encode = make_secure_value(str(visits))
+        self.response.headers.add_header('Set-Cookie', 'visits=%s' % visits_encode)
+
+        self.write("You've been here %s times!" % visits)
+
 app = webapp2.WSGIApplication([
     ('/rot13', ROT13Handler),
     ('/signup', SignUpHandler),
@@ -157,4 +195,5 @@ app = webapp2.WSGIApplication([
     ('/blog/?', BlogFront),
     ('/blog/([0-9]+)', PostPage),
     ('/blog/newpost', NewPost),
+    ('/', MainPage),
 ], debug=True)
