@@ -58,6 +58,12 @@ class User(db.Model):
     def register(cls, name, pw, email=None):
         pw_hash = make_pw_hash(name, pw)
         return User(parent = UserKey(), name = name, pw_hash = pw_hash, email = email)
+
+    @classmethod
+    def login(cls, name, pw):
+        u = cls.by_name(name)
+        if u and valid_pw(name, pw, u.pw_hash):
+            return u
    
 class Handler(webapp2.RequestHandler):
     def write(self, *a, **kw):
@@ -79,6 +85,12 @@ class Handler(webapp2.RequestHandler):
     def read_secure_cookie(self, name):
         cookie_val = self.request.cookies.get(name)
         return cookie_val and check_secure_value(cookie_val)
+
+    def login(self, user):
+        self.set_secure_cookie('user_id', str(user.key().id()))
+
+    def logout(self):
+        self.response.headers.add_header('Set-Cookie', str('user_id=; Path=/'))
 
     def initialize(self, *a, **kw):
         webapp2.RequestHandler.initialize(self, *a, **kw)
@@ -171,19 +183,37 @@ class Register(SignUpHandler):
         else:
             u = User.register(self.username, self.password, self.email)
             u.put()
-            self.render('welcome.html', username = self.username)
 
+            self.login(u)
+            self.redirect('/welcome')
+
+class Login(Handler):
+    def get(self):
+        self.render('login-form.html')
+
+    def post(self):
+        username = self.request.get('username')
+        password = self.request.get('password')
+
+        u = User.login(username, password)
+        if u:
+            self.login(u)
+            self.redirect('/welcome')
+        else:
+            msg = 'Invalid Login'
+            self.render('login-form.html', error = msg)
+
+class Logout(Handler):
+    def get(self):
+        self.logout()
+        self.redirect('/signup')
 
 class WelcomeHandler(Handler):
     def get(self):
-        username = self.request.get('username')
-
-        if username:
-            if valid_user.match(username):
-                self.render('welcome.html', username=username)
-                return
-
-        self.redirect('/signup')
+        if self.user:
+            self.render('welcome.html', username=self.user.name)
+        else:
+            self.redirect('/signup')
 
 
 
@@ -237,24 +267,6 @@ class NewPost(Handler):
             error = 'Wrong Subject or Content'
             self.render("newpost.html", subject=subject, content=content, error=error)
 
-class MainPage(Handler):
-    def get(self):
-        self.response.headers['Content-Type'] = 'text/plain'
-        
-        visits = 0
-        
-        visits_str = self.request.cookies.get('visits')
-        if visits_str:
-            val = check_secure_value(visits_str)
-            if val:
-                visits = int(val)
-
-        visits += 1
-
-        visits_encode = make_secure_value(str(visits))
-        self.response.headers.add_header('Set-Cookie', 'visits=%s' % visits_encode)
-
-        self.write("You've been here %s times!" % visits)
 
 app = webapp2.WSGIApplication([
     ('/rot13', ROT13Handler),
@@ -264,4 +276,6 @@ app = webapp2.WSGIApplication([
     ('/blog/([0-9]+)', PostPage),
     ('/blog/newpost', NewPost),
     ('/signup', Register),
+    ('/login', Login),
+    ('/logout', Logout),
 ], debug=True)
