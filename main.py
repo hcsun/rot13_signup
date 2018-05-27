@@ -12,7 +12,7 @@ jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir), a
 
 from google.appengine.ext import db
 
-SECRET = 'markandlw'
+from secret import SECRET
 def hash_str(s):
     return hmac.new(SECRET, s).hexdigest()
 
